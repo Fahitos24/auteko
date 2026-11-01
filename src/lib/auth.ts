@@ -1,12 +1,14 @@
 import { cookies } from 'next/headers'
 import { COOKIE_NAME, SESSION_HOURS, signToken, verifyToken } from './jwt'
 import type { SessionPayload } from './jwt'
+import { getUserAuthState } from './session-version'
 
 export type { SessionPayload }
 
 // Создать JWT и записать в cookie
 export async function createSession(payload: SessionPayload) {
-  const token = await signToken(payload)
+  const state = await getUserAuthState(payload.userId)
+  const token = await signToken({ ...payload, tv: state.tv })
 
   cookies().set(COOKIE_NAME, token, {
     httpOnly: true,
@@ -21,7 +23,13 @@ export async function createSession(payload: SessionPayload) {
 export async function getSession(): Promise<SessionPayload | null> {
   const token = cookies().get(COOKIE_NAME)?.value
   if (!token) return null
-  return verifyToken(token)
+  const session = await verifyToken(token)
+  if (!session) return null
+
+  // Сверка с БД: пользователь существует, активен, версия токена актуальна
+  const state = await getUserAuthState(session.userId)
+  if (!state.exists || !state.active || state.tv !== (session.tv ?? 0)) return null
+  return session
 }
 
 // Удалить сессию (выход)

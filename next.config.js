@@ -2,6 +2,10 @@
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  experimental: {
+    instrumentationHook: true,                 // проверка JWT_SECRET при старте
+    serverComponentsExternalPackages: ['exceljs'],
+  },
   async headers() {
     return [{
       source: '/(.*)',

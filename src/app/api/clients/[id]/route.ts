@@ -68,6 +68,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     if (!client) return NextResponse.json({ error: 'Не найдено' }, { status: 404 })
     return NextResponse.json({ data: client })
   } catch (err) {
+    if (err instanceof SyntaxError) {
+      return NextResponse.json({ error: 'Некорректный JSON' }, { status: 400 })
+    }
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: 'Некорректные данные' }, { status: 400 })
     }

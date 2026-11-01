@@ -113,6 +113,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const batch = result.batch
     return NextResponse.json({ data: batch })
   } catch (err) {
+    if (err instanceof SyntaxError) {
+      return NextResponse.json({ error: 'Некорректный JSON' }, { status: 400 })
+    }
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: 'Некорректные данные' }, { status: 400 })
     }

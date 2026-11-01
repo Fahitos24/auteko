@@ -51,10 +51,20 @@ async function main() {
     }
 
     if (exists.rowCount) {
-      await pool.query(
-        'UPDATE users SET password_hash = $2, full_name = COALESCE($3, full_name) WHERE email = $1',
-        [mail, hash, fullName || null]
-      )
+      try {
+        // token_version + 1: все старые сессии пользователя перестают работать
+        await pool.query(
+          'UPDATE users SET password_hash = $2, full_name = COALESCE($3, full_name), token_version = token_version + 1 WHERE email = $1',
+          [mail, hash, fullName || null]
+        )
+      } catch (e) {
+        if (e.code !== '42703') throw e
+        console.warn('Колонки token_version нет: примените db/migrations/001_security.sql')
+        await pool.query(
+          'UPDATE users SET password_hash = $2, full_name = COALESCE($3, full_name) WHERE email = $1',
+          [mail, hash, fullName || null]
+        )
+      }
       console.log(`✅ Пароль пользователя ${mail} обновлён`)
     } else {
       await pool.query(

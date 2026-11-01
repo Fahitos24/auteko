@@ -3,7 +3,7 @@ import type { NextRequest } from 'next/server'
 import { COOKIE_NAME, verifyToken } from '@/lib/jwt'
 
 // Маршруты которые не требуют авторизации
-const PUBLIC_PATHS = ['/login', '/api/auth/login']
+const PUBLIC_PATHS = new Set(['/login', '/api/auth/login'])
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
 // CSRF: изменяющие запросы к API только с нашего Origin
@@ -35,7 +35,9 @@ export async function middleware(request: NextRequest) {
   }
 
   // Пропускаем публичные маршруты
-  if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) {
+  // Точное совпадение (с учётом возможного завершающего слеша), без startsWith
+  const normalized = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname
+  if (PUBLIC_PATHS.has(normalized)) {
     return NextResponse.next()
   }
 

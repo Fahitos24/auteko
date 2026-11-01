@@ -133,6 +133,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ data: batch }, { status: 201 })
   } catch (err) {
+    if (err instanceof SyntaxError) {
+      return NextResponse.json({ error: 'Некорректный JSON' }, { status: 400 })
+    }
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: 'Некорректные данные', details: err.errors }, { status: 400 })
     }

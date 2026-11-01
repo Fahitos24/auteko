@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import * as XLSX from 'xlsx'
+import { buildWorkbook, XLSX_MIME } from '@/lib/xlsx'
 import { query } from '@/lib/db'
 import { getSession } from '@/lib/auth'
 
@@ -20,6 +20,7 @@ export async function GET(req: NextRequest) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  try {
   const deals = await query<Record<string, unknown>>(`
     SELECT
       d.deal_number          AS "№ сделки",
@@ -66,27 +67,23 @@ export async function GET(req: NextRequest) {
     'Прибыль, руб.':       Number(d['Прибыль, руб.']),
   }))
 
-  const wb = XLSX.utils.book_new()
-  const ws = XLSX.utils.json_to_sheet(rows)
-
-  // Ширина колонок
-  ws['!cols'] = [
-    { wch: 12 }, { wch: 25 }, { wch: 14 }, { wch: 16 },
-    { wch: 12 }, { wch: 35 }, { wch: 12 }, { wch: 8 },
-    { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 14 },
-    { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 16 },
-    { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 25 }, { wch: 12 },
-  ]
-
-  XLSX.utils.book_append_sheet(wb, ws, 'Реестр реализации')
-
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
+  const widths = [12,25,14,16,12,35,12,8,14,18,18,14,14,16,18,16,12,12,14,25,12]
+  const headers = Object.keys(rows[0] ?? {})
+  const buf = await buildWorkbook([{
+    name: 'Реестр реализации',
+    columns: headers.map((h, i) => ({ header: h, width: widths[i] ?? 14 })),
+    rows: rows.map(r => headers.map(h => (r as Record<string, unknown>)[h])),
+  }])
   const date = new Date().toLocaleDateString('ru-RU').replace(/\./g, '-')
 
   return new NextResponse(buf, {
     headers: {
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Type': XLSX_MIME,
       'Content-Disposition': `attachment; filename="deals_${date}.xlsx"`,
     },
   })
+  } catch (err) {
+    console.error('GET /api/deals/export error:', err)
+    return NextResponse.json({ error: 'Ошибка сервера' }, { status: 500 })
+  }
 }
