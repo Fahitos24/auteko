@@ -49,7 +49,7 @@ export default function LoginPage() {
             fontSize: '14px', fontWeight: 600, color: 'var(--blue)',
             letterSpacing: '-.5px', marginBottom: '14px',
           }}>AU</div>
-          <div style={{ fontSize: '16px', fontWeight: 600, color: 'var(--ink)', marginBottom: '4px' }}>AUTEKO</div>
+          <div style={{ fontSize: '16px', fontWeight: 600, color: 'var(--ink)', marginBottom: '4px' }}>Auteko Workplace</div>
           <div style={{ fontSize: '12.5px', color: 'var(--ink-3)' }}>Войдите в систему</div>
         </div>
 

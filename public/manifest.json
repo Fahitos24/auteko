@@ -1,6 +1,6 @@
 {
-  "name": "AUTEKO — Управление ценами",
-  "short_name": "AUTEKO",
+  "name": "Auteko Workplace — Управление ценами",
+  "short_name": "Auteko",
   "description": "Учёт номенклатуры и расчёт цен",
   "start_url": "/products",
   "display": "standalone",

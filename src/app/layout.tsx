@@ -2,13 +2,13 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'AUTEKO — Управление ценами',
+  title: 'Auteko Workplace — Управление ценами',
   description: 'Информационная система учёта номенклатуры и расчёта цен',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'AUTEKO',
+    title: 'Auteko',
   },
 }
 

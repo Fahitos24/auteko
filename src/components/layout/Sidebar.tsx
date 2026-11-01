@@ -99,7 +99,10 @@ export default function Sidebar() {
           fontSize: '10px', fontWeight: 700, color: '#fff',
           letterSpacing: '-.5px', flexShrink: 0,
         }}>AU</div>
-        <span className="sb-label" style={{ fontSize: '13px', fontWeight: 600, color: '#fff', letterSpacing: '.02em' }}>AUTEKO</span>
+        <span className="sb-label" style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: '#fff', letterSpacing: '.02em' }}>Auteko</span>
+          <span style={{ fontSize: '10.5px', fontWeight: 400, color: 'rgba(255,255,255,0.65)', letterSpacing: '.04em' }}>Workplace</span>
+        </span>
       </div>
 
       {/* Навигация */}

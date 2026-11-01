@@ -1,5 +1,5 @@
 // =============================================
-// AUTEKO — TypeScript типы
+// Auteko Workplace — TypeScript типы
 // =============================================
 
 export interface User {
