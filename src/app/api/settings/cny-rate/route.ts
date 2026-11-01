@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server'
+import { getSession } from '@/lib/auth'
 
 // GET /api/settings/cny-rate
 // Подтягивает актуальный курс юаня с сайта ЦБ РФ
 export async function GET() {
+  const session = await getSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   try {
     const today = new Date().toLocaleDateString('ru-RU').replace(/\./g, '/')
     const url   = `https://www.cbr.ru/scripts/XML_daily.asp?date_req=${today}`

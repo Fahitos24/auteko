@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { query, queryOne } from '@/lib/db'
+import { query, queryOne, withTransaction } from '@/lib/db'
+import { lockBatchStock } from '@/lib/stock'
+import { badId, dateStr } from '@/lib/validation'
 import { getSession } from '@/lib/auth'
 import { z } from 'zod'
 import type { Batch } from '@/types'
@@ -8,35 +10,42 @@ const updateSchema = z.object({
   quantity:           z.number().int().positive().optional(),
   price_exw_cny:      z.number().positive().optional(),
   cny_rate:           z.number().positive().optional(),
-  cny_rate_date:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  cny_rate_date:      dateStr.optional(),
   customs_duty_pct:   z.number().min(0).max(100).optional(),
   transport_cost:     z.number().min(0).optional(),
   other_costs:        z.number().min(0).optional(),
   markup_coefficient: z.number().positive().optional(),
   gtd_number:         z.string().nullable().optional(),
-  gtd_date:           z.string().nullable().optional(),
+  gtd_date:           dateStr.nullable().optional(),
 })
 
 // GET /api/batches/:id
 export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  { const bad = badId(params.id); if (bad) return bad }
 
-  const batch = await queryOne<Batch>(`
-    SELECT b.*, pr.name AS product_name, pr.auteko_article AS product_article
-    FROM batches b
-    JOIN products pr ON pr.id = b.product_id
-    WHERE b.id = $1
-  `, [params.id])
+  try {
+    const batch = await queryOne<Batch>(`
+      SELECT b.*, pr.name AS product_name, pr.auteko_article AS product_article
+      FROM batches b
+      JOIN products pr ON pr.id = b.product_id
+      WHERE b.id = $1
+    `, [params.id])
 
-  if (!batch) return NextResponse.json({ error: 'Не найдено' }, { status: 404 })
-  return NextResponse.json({ data: batch })
+    if (!batch) return NextResponse.json({ error: 'Не найдено' }, { status: 404 })
+    return NextResponse.json({ data: batch })
+  } catch (err) {
+    console.error('GET /api/batches/:id error:', err)
+    return NextResponse.json({ error: 'Ошибка сервера' }, { status: 500 })
+  }
 }
 
 // PUT /api/batches/:id
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  { const bad = badId(params.id); if (bad) return bad }
 
   try {
     const body = await req.json()
@@ -72,16 +81,41 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
     values.push(params.id)
 
-    // Триггер пересчитает cost_price_rub, price_kp_rub, profit_per_unit
-    const [batch] = await query<Batch>(`
-      UPDATE batches SET ${fields.join(', ')}
-      WHERE id = $${p}
-      RETURNING *
-    `, values)
+    const CALC_FIELDS = ['price_exw_cny','cny_rate','customs_duty_pct','transport_cost','other_costs','markup_coefficient']
+    const touchesCalc = CALC_FIELDS.some(k => (data as Record<string, unknown>)[k] !== undefined)
 
-    if (!batch) return NextResponse.json({ error: 'Не найдено' }, { status: 404 })
+    // Триггер пересчитает cost_price_rub, price_kp_rub, profit_per_unit
+    const result = await withTransaction(async (c) => {
+      const stock = await lockBatchStock(c, params.id)
+      if (!stock) return { notFound: true as const }
+
+      if (data.quantity !== undefined && data.quantity < stock.sold) {
+        return { error: `Нельзя уменьшить количество ниже уже проданного (${stock.sold} шт.)` }
+      }
+      // Расчётные поля задним числом меняют прибыль закрытых сделок
+      if (touchesCalc) {
+        const active = await c.query(
+          `SELECT 1 FROM deals WHERE batch_id = $1 AND status != 'cancelled' LIMIT 1`, [params.id]
+        )
+        if (active.rows[0]) {
+          return { error: 'Нельзя менять расчётные поля партии, по которой есть активные сделки' }
+        }
+      }
+
+      const upd = await c.query<Batch>(
+        `UPDATE batches SET ${fields.join(', ')} WHERE id = $${p} RETURNING *`, values
+      )
+      return { batch: upd.rows[0] }
+    })
+
+    if ('notFound' in result) return NextResponse.json({ error: 'Не найдено' }, { status: 404 })
+    if ('error' in result) return NextResponse.json({ error: result.error }, { status: 409 })
+    const batch = result.batch
     return NextResponse.json({ data: batch })
   } catch (err) {
+    if (err instanceof SyntaxError) {
+      return NextResponse.json({ error: 'Некорректный JSON' }, { status: 400 })
+    }
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: 'Некорректные данные' }, { status: 400 })
     }
@@ -94,6 +128,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 export async function DELETE(_: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  { const bad = badId(params.id); if (bad) return bad }
 
   // Проверяем нет ли сделок по этой партии
   const hasDeals = await queryOne(

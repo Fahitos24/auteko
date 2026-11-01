@@ -1,4 +1,4 @@
-import { Pool } from 'pg'
+import { Pool, PoolClient } from 'pg'
 
 // Пул соединений с PostgreSQL
 // Один пул на всё приложение (Next.js переиспользует между запросами)
@@ -31,4 +31,20 @@ export async function queryOne<T = unknown>(
 ): Promise<T | null> {
   const rows = await query<T>(sql, params)
   return rows[0] ?? null
+}
+
+// Транзакция: BEGIN / COMMIT / ROLLBACK на одном соединении
+export async function withTransaction<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
+  const client = await db.connect()
+  try {
+    await client.query('BEGIN')
+    const result = await fn(client)
+    await client.query('COMMIT')
+    return result
+  } catch (e) {
+    await client.query('ROLLBACK')
+    throw e
+  } finally {
+    client.release()
+  }
 }

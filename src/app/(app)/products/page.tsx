@@ -16,7 +16,7 @@ const EMPTY_FORM = {
   production_days_max: '',
   is_available:        true,
   notes:               '',
-  status:              'active' as const,
+  status:              'active' as 'active' | 'archived',
   stock_threshold_yellow: null as number | null,
   stock_threshold_red:    null as number | null,
 }

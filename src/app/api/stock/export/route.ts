@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import * as XLSX from 'xlsx'
+import { buildWorkbook, XLSX_MIME } from '@/lib/xlsx'
 import { query } from '@/lib/db'
 import { getSession } from '@/lib/auth'
 
@@ -13,6 +13,7 @@ export async function GET() {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  try {
   const rows = await query<Record<string, unknown>>(`
     SELECT
       auteko_article        AS "Арт. AUTEKO",
@@ -37,22 +38,23 @@ export async function GET() {
     'Статус': STATUS_LABELS[r['Статус'] as string] || r['Статус'],
   }))
 
-  const wb = XLSX.utils.book_new()
-  const ws = XLSX.utils.json_to_sheet(data)
-  ws['!cols'] = [
-    { wch: 14 }, { wch: 40 }, { wch: 12 }, { wch: 10 },
-    { wch: 10 }, { wch: 10 }, { wch: 16 }, { wch: 16 },
-    { wch: 22 }, { wch: 14 },
-  ]
-  XLSX.utils.book_append_sheet(wb, ws, 'Остатки')
-
-  const buf  = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
+  const widths = [14,40,12,10,10,10,16,16,22,14]
+  const headers = Object.keys(data[0] ?? {})
+  const buf = await buildWorkbook([{
+    name: 'Остатки',
+    columns: headers.map((h, i) => ({ header: h, width: widths[i] ?? 14 })),
+    rows: data.map(r => headers.map(h => (r as Record<string, unknown>)[h])),
+  }])
   const date = new Date().toLocaleDateString('ru-RU').replace(/\./g, '-')
 
   return new NextResponse(buf, {
     headers: {
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Type': XLSX_MIME,
       'Content-Disposition': `attachment; filename="stock_${date}.xlsx"`,
     },
   })
+  } catch (err) {
+    console.error('GET /api/stock/export error:', err)
+    return NextResponse.json({ error: 'Ошибка сервера' }, { status: 500 })
+  }
 }

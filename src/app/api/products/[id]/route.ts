@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { query, queryOne } from '@/lib/db'
 import { getSession } from '@/lib/auth'
+import { badId } from '@/lib/validation'
 import { z } from 'zod'
 import type { Product } from '@/types'
 
@@ -21,6 +22,7 @@ const updateSchema = z.object({
 export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  { const bad = badId(params.id); if (bad) return bad }
 
   const product = await queryOne<Product>(
     'SELECT * FROM products WHERE id = $1',
@@ -35,6 +37,7 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  { const bad = badId(params.id); if (bad) return bad }
 
   try {
     const body = await req.json()
@@ -80,6 +83,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
     return NextResponse.json({ data: product })
   } catch (err) {
+    if (err instanceof SyntaxError) {
+      return NextResponse.json({ error: 'Некорректный JSON' }, { status: 400 })
+    }
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: 'Некорректные данные' }, { status: 400 })
     }
@@ -92,6 +98,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 export async function DELETE(_: NextRequest, { params }: { params: { id: string } }) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  { const bad = badId(params.id); if (bad) return bad }
 
   // Проверяем нет ли связанных партий
   const hasBatches = await queryOne(

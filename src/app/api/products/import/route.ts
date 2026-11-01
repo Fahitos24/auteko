@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import * as XLSX from 'xlsx'
-import { query, queryOne } from '@/lib/db'
+import { buildWorkbook, readFirstSheet, XLSX_MIME } from '@/lib/xlsx'
+import { withTransaction } from '@/lib/db'
+import { z } from 'zod'
 import { getSession } from '@/lib/auth'
 
 // Колонки шаблона
@@ -21,71 +22,61 @@ export async function GET() {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const wb = XLSX.utils.book_new()
-
-  // Лист с данными
-  const exampleData = [
-    TEMPLATE_COLUMNS,
-    [
-      'AV-i16471',
-      '445120471 / 331005001218',
-      'Топливная форсунка в сборе',
-      '12-16М33',
-      '8409919900',
-      60,
-      90,
-      'да',
-      '',
-    ],
-    [
-      'AV-i16472',
-      '445120013',
-      'Плунжерная пара',
-      '12М55 / 16М33',
-      '',
-      45,
-      60,
-      'да',
-      '',
-    ],
-  ]
-
-  const ws = XLSX.utils.aoa_to_sheet(exampleData)
-
-  // Ширина колонок
-  ws['!cols'] = [
-    { wch: 15 }, { wch: 25 }, { wch: 40 }, { wch: 20 },
-    { wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 30 },
-  ]
-
-  XLSX.utils.book_append_sheet(wb, ws, 'Номенклатура')
-
-  // Лист с инструкцией
-  const instructions = [
-    ['Поле', 'Обязательное', 'Описание'],
-    ['auteko_article', 'ДА', 'Уникальный артикул AUTEKO (например AV-i16471)'],
-    ['original_articles', 'нет', 'Оригинальные номера через " / "'],
-    ['name', 'ДА', 'Полное наименование товара'],
-    ['engine_models', 'нет', 'Модели ДВС через " / " (12М55 / 16М33) или "все"'],
-    ['tnved_code', 'нет', '10-значный код ТНВЭД'],
-    ['production_days_min', 'нет', 'Минимальный срок изготовления (дней)'],
-    ['production_days_max', 'нет', 'Максимальный срок изготовления (дней)'],
-    ['is_available', 'нет', '"да" или "нет" (по умолчанию "да")'],
-    ['notes', 'нет', 'Примечания'],
-  ]
-
-  const wsInfo = XLSX.utils.aoa_to_sheet(instructions)
-  wsInfo['!cols'] = [{ wch: 22 }, { wch: 14 }, { wch: 55 }]
-  XLSX.utils.book_append_sheet(wb, wsInfo, 'Инструкция')
-
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
+  const buf = await buildWorkbook([
+    {
+      name: 'Номенклатура',
+      trusted: true,
+      columns: TEMPLATE_COLUMNS.map((h, i) => ({ header: h, width: [15,25,40,20,14,10,10,10,30][i] })),
+      rows: [
+        ['AV-i16471', '445120471 / 331005001218', 'Топливная форсунка в сборе', '12-16М33', '8409919900', 60, 90, 'да', ''],
+        ['AV-i16472', '445120013', 'Плунжерная пара', '12М55 / 16М33', '', 45, 60, 'да', ''],
+      ],
+    },
+    {
+      name: 'Инструкция',
+      trusted: true,
+      columns: [{ header: 'Поле', width: 22 }, { header: 'Обязательное', width: 14 }, { header: 'Описание', width: 55 }],
+      rows: [
+        ['auteko_article', 'ДА', 'Уникальный артикул AUTEKO (например AV-i16471)'],
+        ['original_articles', 'нет', 'Оригинальные номера через " / "'],
+        ['name', 'ДА', 'Полное наименование товара'],
+        ['engine_models', 'нет', 'Модели ДВС через " / " (12М55 / 16М33) или "все"'],
+        ['tnved_code', 'нет', '10-значный код ТНВЭД'],
+        ['production_days_min', 'нет', 'Минимальный срок изготовления (дней)'],
+        ['production_days_max', 'нет', 'Максимальный срок изготовления (дней)'],
+        ['is_available', 'нет', '"да" или "нет" (по умолчанию "да")'],
+        ['notes', 'нет', 'Примечания'],
+      ],
+    },
+  ])
 
   return new NextResponse(buf, {
     headers: {
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Type': XLSX_MIME,
       'Content-Disposition': 'attachment; filename="auteko_template.xlsx"',
     },
   })
+}
+
+// Ограничения импорта
+const MAX_FILE_BYTES = 5 * 1024 * 1024
+const MAX_ROWS = 5000
+
+const rowSchema = z.object({
+  article:   z.string().min(1).max(50),
+  name:      z.string().min(1).max(500),
+  original:  z.array(z.string().max(100)).max(50),
+  engines:   z.array(z.string().max(100)).max(50),
+  tnved:     z.string().regex(/^\d{1,10}$/).nullable(),
+  daysMin:   z.number().int().min(0).max(3650).nullable(),
+  daysMax:   z.number().int().min(0).max(3650).nullable(),
+  available: z.boolean(),
+  notes:     z.string().max(2000).nullable(),
+})
+
+function intOrNull(v: unknown): number | null {
+  const n = parseInt(String(v ?? ''), 10)
+  return Number.isFinite(n) ? n : null
 }
 
 // POST /api/products/import — загрузить Excel
@@ -95,74 +86,70 @@ export async function POST(req: NextRequest) {
 
   try {
     const formData = await req.formData()
-    const file = formData.get('file') as File | null
-    if (!file) return NextResponse.json({ error: 'Файл не найден' }, { status: 400 })
+    const file = formData.get('file')
+    if (!(file instanceof File)) return NextResponse.json({ error: 'Файл не найден' }, { status: 400 })
+
+    if (!file.name.toLowerCase().endsWith('.xlsx') || (file.type && file.type !== XLSX_MIME)) {
+      return NextResponse.json({ error: 'Допустим только файл .xlsx' }, { status: 400 })
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      return NextResponse.json({ error: 'Файл больше 5 МБ' }, { status: 413 })
+    }
 
     const buffer = Buffer.from(await file.arrayBuffer())
-    const wb = XLSX.read(buffer, { type: 'buffer' })
-    const ws = wb.Sheets[wb.SheetNames[0]]
-    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' })
+    // .xlsx это zip: проверяем сигнатуру PK
+    if (buffer.length < 4 || buffer[0] !== 0x50 || buffer[1] !== 0x4b) {
+      return NextResponse.json({ error: 'Файл не похож на .xlsx' }, { status: 400 })
+    }
 
+    const parsed = await readFirstSheet(buffer, MAX_ROWS)
+    if (parsed === 'too_many') {
+      return NextResponse.json({ error: `Слишком много строк (максимум ${MAX_ROWS})` }, { status: 413 })
+    }
+    const rows = parsed
     if (rows.length === 0) {
       return NextResponse.json({ error: 'Файл пустой' }, { status: 400 })
     }
 
     const results = { created: 0, skipped: 0, errors: [] as string[] }
 
-    for (const row of rows) {
-      const article = String(row['auteko_article'] || '').trim()
-      const name    = String(row['name'] || '').trim()
-
-      if (!article || !name) {
-        results.errors.push(`Пропущена строка: нет артикула или названия`)
+    // Сначала валидируем все строки, потом пишем одной транзакцией
+    const valid: z.infer<typeof rowSchema>[] = []
+    rows.forEach((row, i) => {
+      const parsed = rowSchema.safeParse({
+        article:   String(row['auteko_article'] ?? '').trim(),
+        name:      String(row['name'] ?? '').trim(),
+        original:  String(row['original_articles'] ?? '').split('/').map(x => x.trim()).filter(Boolean),
+        engines:   String(row['engine_models'] ?? '').split('/').map(x => x.trim()).filter(Boolean),
+        tnved:     String(row['tnved_code'] ?? '').trim() || null,
+        daysMin:   intOrNull(row['production_days_min']),
+        daysMax:   intOrNull(row['production_days_max']),
+        available: String(row['is_available'] || 'да').toLowerCase() !== 'нет',
+        notes:     String(row['notes'] ?? '').trim() || null,
+      })
+      if (parsed.success) valid.push(parsed.data)
+      else {
+        results.errors.push(`Строка ${i + 2}: некорректные данные`)
         results.skipped++
-        continue
       }
+    })
 
-      // Парсим массивы
-      const originalArticles = String(row['original_articles'] || '')
-        .split('/').map(s => s.trim()).filter(Boolean)
-
-      const engineModels = String(row['engine_models'] || '')
-        .split('/').map(s => s.trim()).filter(Boolean)
-
-      const isAvailable = String(row['is_available'] || 'да').toLowerCase() !== 'нет'
-
-      try {
-        const existing = await queryOne(
-          'SELECT id FROM products WHERE auteko_article = $1',
-          [article]
-        )
-
-        if (existing) {
-          results.skipped++
-          continue
-        }
-
-        await query(`
+    await withTransaction(async (c) => {
+      for (const r of valid) {
+        // NOT EXISTS вместо ON CONFLICT: не требует UNIQUE-констрейнта в схеме
+        const ins = await c.query(`
           INSERT INTO products (
             auteko_article, original_articles, name, engine_models,
             tnved_code, production_days_min, production_days_max,
             is_available, notes
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-        `, [
-          article,
-          originalArticles,
-          name,
-          engineModels,
-          String(row['tnved_code'] || '').trim() || null,
-          parseInt(String(row['production_days_min'])) || null,
-          parseInt(String(row['production_days_max'])) || null,
-          isAvailable,
-          String(row['notes'] || '').trim() || null,
-        ])
-
-        results.created++
-      } catch (err) {
-        results.errors.push(`Артикул ${article}: ошибка записи`)
-        results.skipped++
+          )
+          SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9
+          WHERE NOT EXISTS (SELECT 1 FROM products WHERE auteko_article = $1)
+        `, [r.article, r.original, r.name, r.engines, r.tnved, r.daysMin, r.daysMax, r.available, r.notes])
+        if (ins.rowCount) results.created++
+        else results.skipped++
       }
-    }
+    })
 
     return NextResponse.json({ data: results })
   } catch (err) {

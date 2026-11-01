@@ -22,3 +22,4 @@ Thumbs.db
 
 # Локальные файлы редактора
 .vscode/
+tsconfig.tsbuildinfo

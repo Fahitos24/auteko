@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { query, queryOne } from '@/lib/db'
 import { getSession } from '@/lib/auth'
+import { escapeLike } from '@/lib/validation'
 import type { StockBalance } from '@/types'
 
 export async function GET(req: NextRequest) {
@@ -21,7 +22,7 @@ export async function GET(req: NextRequest) {
       s.name           ILIKE $${p} OR
       s.batch_number   ILIKE $${p}
     )`)
-    params.push(`%${search}%`)
+    params.push(`%${escapeLike(search)}%`)
     p++
   }
 
