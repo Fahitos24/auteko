@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { query, queryOne } from '@/lib/db'
 import { getSession } from '@/lib/auth'
+import { escapeLike, parseLimit, parsePage } from '@/lib/validation'
 import { z } from 'zod'
 import type { Product } from '@/types'
 
@@ -26,8 +27,8 @@ export async function GET(req: NextRequest) {
   const search  = searchParams.get('search')?.trim() || ''
   const engine  = searchParams.get('engine') || ''
   const status  = searchParams.get('status') || 'active'
-  const page    = Math.max(1, parseInt(searchParams.get('page') || '1'))
-  const limit   = Math.min(100, parseInt(searchParams.get('limit') || '50'))
+  const page    = parsePage(searchParams.get('page'))
+  const limit   = parseLimit(searchParams.get('limit'), 50, 100)
   const offset  = (page - 1) * limit
 
   const conditions: string[] = []
@@ -48,7 +49,7 @@ export async function GET(req: NextRequest) {
         WHERE art ILIKE $${p}
       )
     )`)
-    params.push(`%${search}%`)
+    params.push(`%${escapeLike(search)}%`)
     p++
   }
 

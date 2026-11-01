@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { query, queryOne } from '@/lib/db'
 import { getSession } from '@/lib/auth'
+import { escapeLike, parseLimit } from '@/lib/validation'
 import { z } from 'zod'
 import type { Client } from '@/types'
 
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url)
   const search = searchParams.get('search')?.trim() || ''
-  const limit  = Math.min(100, parseInt(searchParams.get('limit') || '100'))
+  const limit  = parseLimit(searchParams.get('limit'), 100, 100)
 
   const conditions: string[] = []
   const params: unknown[]    = []
@@ -33,7 +34,7 @@ export async function GET(req: NextRequest) {
       c.contact_person ILIKE $${p} OR
       c.phone          ILIKE $${p}
     )`)
-    params.push(`%${search}%`)
+    params.push(`%${escapeLike(search)}%`)
     p++
   }
 

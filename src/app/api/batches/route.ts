@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { query, queryOne } from '@/lib/db'
 import { getSession } from '@/lib/auth'
+import { escapeLike, parseLimit, parsePage } from '@/lib/validation'
 import { z } from 'zod'
 import type { Batch } from '@/types'
 
@@ -27,8 +28,8 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const search     = searchParams.get('search')?.trim() || ''
   const product_id = searchParams.get('product_id') || ''
-  const page       = Math.max(1, parseInt(searchParams.get('page') || '1'))
-  const limit      = Math.min(100, parseInt(searchParams.get('limit') || '50'))
+  const page       = parsePage(searchParams.get('page'))
+  const limit      = parseLimit(searchParams.get('limit'), 50, 100)
   const offset     = (page - 1) * limit
 
   const conditions: string[] = []
@@ -37,7 +38,7 @@ export async function GET(req: NextRequest) {
 
   if (search) {
     conditions.push(`(b.batch_number ILIKE $${p} OR pr.auteko_article ILIKE $${p} OR pr.name ILIKE $${p})`)
-    params.push(`%${search}%`)
+    params.push(`%${escapeLike(search)}%`)
     p++
   }
 
