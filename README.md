@@ -1,4 +1,4 @@
-# AUTEKO — Информационная система
+# Auteko Workplace — Информационная система
 
 ## Стек
 - **Next.js 14** (App Router)
