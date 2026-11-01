@@ -72,7 +72,7 @@ export default function Sidebar() {
   }
 
   return (
-    <aside style={{
+    <aside className="sb" style={{
       width: '160px',
       flexShrink: 0,
       background: '#1B3A6B',
@@ -83,7 +83,7 @@ export default function Sidebar() {
       top: 0,
     }}>
       {/* Логотип */}
-      <div style={{
+      <div className="sb-logo" style={{
         height: '52px',
         display: 'flex', alignItems: 'center',
         padding: '0 16px',
@@ -99,15 +99,15 @@ export default function Sidebar() {
           fontSize: '10px', fontWeight: 700, color: '#fff',
           letterSpacing: '-.5px', flexShrink: 0,
         }}>AU</div>
-        <span style={{ fontSize: '13px', fontWeight: 600, color: '#fff', letterSpacing: '.02em' }}>AUTEKO</span>
+        <span className="sb-label" style={{ fontSize: '13px', fontWeight: 600, color: '#fff', letterSpacing: '.02em' }}>AUTEKO</span>
       </div>
 
       {/* Навигация */}
-      <nav style={{ flex: 1, padding: '8px 0', overflow: 'hidden' }}>
+      <nav className="sb-nav" style={{ flex: 1, padding: '8px 0', overflow: 'hidden' }}>
         {NAV.map(item => {
           const active = pathname.startsWith(item.href)
           return (
-            <Link key={item.href} href={item.href} style={{
+            <Link key={item.href} href={item.href} className="sb-link" title={item.label} aria-label={item.label} style={{
               display: 'flex', alignItems: 'center', gap: '10px',
               padding: '0 16px', height: '40px',
               color: active ? '#fff' : 'rgba(255,255,255,0.5)',
@@ -118,15 +118,15 @@ export default function Sidebar() {
               transition: 'color .15s, background .15s',
             }}>
               {item.icon}
-              {item.label}
+              <span className="sb-label">{item.label}</span>
             </Link>
           )
         })}
       </nav>
 
       {/* Выход */}
-      <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', padding: '8px 0' }}>
-        <button onClick={logout} style={{
+      <div className="sb-foot" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', padding: '8px 0' }}>
+        <button onClick={logout} className="sb-link" title="Выход" aria-label="Выход" style={{
           width: '100%', height: '40px',
           display: 'flex', alignItems: 'center', gap: '10px',
           padding: '0 16px',
@@ -140,7 +140,7 @@ export default function Sidebar() {
             <polyline points="16 17 21 12 16 7"/>
             <line x1="21" y1="12" x2="9" y2="12"/>
           </svg>
-          Выход
+          <span className="sb-label">Выход</span>
         </button>
       </div>
     </aside>
