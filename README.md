@@ -1,1 +1,245 @@
+# Auteko Workplace
 
+Информационная система для небольшого торгового бизнеса: учёт номенклатуры (товары-двигатели), партий поставки, сделок реализации, контрагентов и остатков на складе. Себестоимость и цена КП считаются автоматически по курсу юаня, реестры выгружаются в Excel.
+
+> Полная спецификация проекта — [`tech.md`](tech.md). Инструкция по развёртыванию на сервере — [`DEPLOY.md`](DEPLOY.md). Политика безопасности — [`SECURITY.md`](SECURITY.md).
+
+---
+
+## Содержание
+
+- [Возможности](#возможности)
+- [Стек](#стек)
+- [Структура проекта](#структура-проекта)
+- [Быстрый старт](#быстрый-старт)
+- [Переменные окружения](#переменные-окружения)
+- [Команды](#команды)
+- [База данных](#база-данных)
+- [API](#api)
+- [Безопасность](#безопасность)
+- [Проверки перед запуском](#проверки-перед-запуском)
+- [Развёртывание](#развёртывание)
+- [Лицензия](#лицензия)
+
+---
+
+## Возможности
+
+1. **Вход по email и паролю** — JWT-сессия в httpOnly-cookie на 12 часов, отзыв сессий при выходе и смене пароля.
+2. **Номенклатура** — справочник товаров с оригинальными артикулами, моделями ДВС и кодами ТНВЭД; импорт из Excel по шаблону.
+3. **Партии поставки** — цена EXW в юанях, фиксация курса, пошлина, доставка; себестоимость, цена КП и прибыль считаются триггером БД.
+4. **Сделки реализации** — контроль остатков партии (без гонок, через `SELECT ... FOR UPDATE`), допустимые переходы статусов, запрет правки завершённых сделок.
+5. **Контрагенты** — справочник покупателей с реквизитами и защитой от удаления при активных сделках.
+6. **Склад** — остатки по партиям с подсветкой порогов «зелёный/жёлтый/красный» и сводкой по стоимости.
+7. **Настройки** — реквизиты компании, префиксы и счётчики номеров партий/сделок, загрузка курса CNY с сайта ЦБ РФ.
+8. **Экспорт в Excel** — реестр реализации и остатки склада в `.xlsx`.
+
+## Стек
+
+| Слой | Технология |
+|---|---|
+| Рантайм | Node.js 20 LTS |
+| Фреймворк | Next.js 14.2.35 (App Router), TypeScript, React 18 |
+| Стили | Tailwind CSS 3 |
+| БД | PostgreSQL (драйвер `pg`, пул соединений) |
+| Авторизация | JWT через `jose`, пароли через `bcryptjs` (cost 12) |
+| Валидация | `zod` |
+| Excel | `exceljs` (импорт и экспорт) |
+
+Запрещены по спецификации: ORM, стейт-менеджеры, компонентные библиотеки.
+
+## Структура проекта
+
+```
+package.json                     npm-манифест
+tsconfig.json                    конфиг TypeScript (strict)
+next.config.js                   заголовки безопасности, CSP, внешний exceljs
+tailwind.config.ts               конфиг Tailwind
+.env.example                     образец переменных окружения
+db/
+  schema.sql                     полная DDL-схема (чистая БД)
+  roles.sql                      ограниченная роль приложения auteko_app
+  migrations/
+    001_security.sql             token_version, is_active, UNIQUE на номера
+scripts/
+  create-user.js                 создание пользователя (пароль скрытно / через AUTEKO_PASSWORD)
+  seed-demo.js                   демо-данные: клиенты, партии, сделки (--clean / --reset)
+src/
+  middleware.ts                  проверка JWT и Origin (CSRF) на все маршруты
+  instrumentation.ts             проверка JWT_SECRET при старте сервера
+  types/index.ts                 типы приложения
+  lib/
+    db.ts                        пул PostgreSQL: query, queryOne, withTransaction
+    jwt.ts                       cookie auteko_session, срок 12 ч, валидация секрета
+    auth.ts                      createSession / getSession / deleteSession
+    session-version.ts           сверка token_version и is_active с БД
+    rate-limit.ts                ограничение попыток входа (в памяти процесса)
+    validation.ts                badId, dateStr, escapeLike, parseLimit, parsePage
+    stock.ts                     lockBatchStock (блокировка партии), canTransition
+    xlsx.ts                      ExcelJS-хелперы, защита от формул-инъекций
+  app/
+    layout.tsx, page.tsx
+    login/page.tsx               страница входа
+    (app)/                       защищённые страницы: products, batches, deals, clients, stock, settings
+    api/                         маршруты API (см. таблицу ниже)
+  components/
+    layout/Sidebar.tsx, MobileNav.tsx
+    ui/Tooltip.tsx
+```
+
+## Быстрый старт
+
+### Предпосылки
+
+- Node.js 20 LTS
+- PostgreSQL 14+
+- (опционально) openssl для генерации секрета
+
+### 1. Установить зависимости
+
+```bash
+npm ci
+```
+
+### 2. Создать базу данных
+
+```bash
+sudo -u postgres psql -c "CREATE DATABASE auteko_db;"
+sudo -u postgres psql -c "CREATE USER auteko_user WITH PASSWORD 'сложный_пароль';"
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE auteko_db TO auteko_user;"
+sudo -u postgres psql -d auteko_db -f db/schema.sql
+sudo -u postgres psql -d auteko_db -f db/roles.sql
+sudo -u postgres psql -d auteko_db -f db/migrations/001_security.sql
+```
+
+### 3. Настроить переменные окружения
+
+```bash
+cp .env.example .env.local
+```
+
+Заполнить `.env.local` (см. [таблицу](#переменные-окружения)). Секрет сгенерировать так:
+
+```bash
+openssl rand -base64 32
+```
+
+> Приложение **не стартует** со слабым, коротким (<32 символов) или примерным значением `JWT_SECRET` — процесс завершится сразу при запуске.
+
+### 4. Создать пользователя
+
+```bash
+node scripts/create-user.js email@example.com "Имя Фамилия"
+# пароль вводится скрытно; минимум 12 символов
+# вариант без ввода: AUTEKO_PASSWORD='пароль' node scripts/create-user.js email "Имя"
+# сменить пароль существующего: добавить --reset
+```
+
+### 5. Запустить
+
+```bash
+npm run dev        # режим разработки, http://127.0.0.1:3000
+```
+
+Для демо-данных (клиенты, партии, сделки):
+
+```bash
+npm run db:seed            # добавить демо-данные
+npm run db:seed:clean      # удалить демо-данные
+```
+
+## Переменные окружения
+
+| Переменная | Обязательная | Описание |
+|---|---|---|
+| `DATABASE_URL` | да | Строка подключения PostgreSQL, например `postgresql://auteko_user:пароль@localhost:5432/auteko_db` |
+| `JWT_SECRET` | да | Секрет для подписи JWT. Минимум 32 символа, иначе процесс не стартует. Генерация: `openssl rand -base64 32` |
+| `NEXT_PUBLIC_APP_URL` | да (в проде) | Публичный URL сайта (`https://домен`). Нужен для проверки Origin (CSRF) и редиректов. Для cookie с `Secure` обязателен HTTPS |
+
+Файлы: `.env.local` — локально, `.env` — на сервере. Оба в `.gitignore`, в репозиторий не попадают.
+
+## Команды
+
+| Команда | Что делает |
+|---|---|
+| `npm run dev` | Сервер разработки на `127.0.0.1:3000` |
+| `npm run build` | Продакшен-сборка |
+| `npm start` | Продакшен-сервер на `127.0.0.1:3000` |
+| `npm run lint` | Статический анализ (ESLint + next/core-web-vitals) |
+| `npx tsc --noEmit` | Проверка типов без сборки |
+| `npm run db:seed` | Добавить демо-данные |
+| `npm run db:seed:clean` | Удалить демо-данные |
+| `node scripts/create-user.js <email> ["Имя"] [--reset]` | Создать пользователя / сменить пароль |
+
+## База данных
+
+Схема — `db/schema.sql` (чистая БД, данные не вставляются, только служебные настройки). Таблицы:
+
+- `users` — учётные записи (пароль — bcrypt, `token_version`, `is_active` после миграции 001);
+- `products` — номенклатура (массивы `original_articles`, `engine_models`);
+- `batches` — партии поставки; `cost_price_rub`, `price_kp_rub`, `profit_per_unit` считает триггер `calc_batch_prices()`;
+- `clients` — контрагенты;
+- `deals` — сделки; `total_amount` считает триггер;
+- `settings` — пары «ключ–значение» (пороги склада, префиксы и счётчики номеров, реквизиты компании).
+
+Представление `stock_balance` — остатки по партиям со статусом «зелёный/жёлтый/красный».
+
+Миграции применяются только вперёд. Номера партий и сделок уникальны (после миграции 001).
+
+## API
+
+Все маршруты (кроме `/api/auth/login`) требуют валидную сессию — иначе `401`. Изменяющие запросы (`POST/PUT/PATCH/DELETE`) принимаются только со своим `Origin` — иначе `403`.
+
+| Метод и маршрут | Описание |
+|---|---|
+| `POST /api/auth/login` | Вход (лимит: 5 неудачных попыток за 15 минут по email и по IP) |
+| `POST /api/auth/logout` | Выход |
+| `GET/POST /api/products` | Список / создание товаров |
+| `GET/PUT/DELETE /api/products/:id` | Товар (DELETE — перевод в архив) |
+| `GET/POST /api/products/import` | Скачать шаблон / импорт Excel (до 5 МБ, 5000 строк) |
+| `GET/POST /api/batches` | Список / создание партий |
+| `GET/PUT/DELETE /api/batches/:id` | Партия (расчётные поля нельзя менять при активных сделках) |
+| `GET/POST /api/deals` | Список (фильтры: поиск, статус, просроченные) / создание сделки с контролем остатка |
+| `GET/PUT/DELETE /api/deals/:id` | Сделка (DELETE — отмена, не физическое удаление) |
+| `GET /api/deals/export` | Реестр реализации в `.xlsx` |
+| `GET/POST /api/clients` | Список / создание контрагентов |
+| `GET/PUT/DELETE /api/clients/:id` | Контрагент |
+| `GET /api/stock` | Остатки склада со сводкой |
+| `GET /api/stock/export` | Остатки в `.xlsx` |
+| `GET/PUT /api/settings` | Все настройки одним объектом / обновление |
+| `GET /api/settings/cny-rate` | Актуальный курс юаня с сайта ЦБ РФ (кэш 1 час) |
+| `GET/POST /api/settings/next-number?type=batch\|deal` | Следующий номер партии/сделки (GET — предпросмотр, POST — с инкрементом) |
+
+Формат ответов: `{ data: ... }` при успехе, `{ error: "...", details?: ... }` при ошибке.
+
+## Безопасность
+
+- **Сессии**: JWT HS256 в httpOnly-cookie `auteko_session` (12 ч, `SameSite=Lax`, `Secure` в проде). При каждом запросе к API сверяется с БД: пользователь существует, активен, версия токена актуальна — выход и смена пароля отзывают все сессии.
+- **CSRF**: изменяющие запросы к API принимаются только со своим `Origin` (заголовок обязателен).
+- **Вход**: bcrypt cost 12, константное время ответа для несуществующих email, лимит 5 неудачных попыток за 15 минут по email и IP, логирование неудачных попыток.
+- **Заголовки** (`next.config.js`): CSP, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`.
+- **Инъекции**: только параметризованные запросы; `ILIKE`-паттерны экранируются; защита от формул-инъекций при экспорте Excel; проверка сигнатуры и размера файла при импорте.
+- **Валидация**: все входы API через zod-схемы; id проверяется на UUID до обращения к БД.
+- **Конкурентность**: остатки пересчитываются в транзакции с `SELECT ... FOR UPDATE` по партии — гонок и отрицательных остатков нет.
+- Подробности — [`SECURITY.md`](SECURITY.md) и [`SECURITY_AUDIT_REPORT.md`](SECURITY_AUDIT_REPORT.md).
+
+## Проверки перед запуском
+
+```bash
+npx tsc --noEmit    # типы — должно пройти без ошибок
+npm run lint        # ESLint
+npm run build       # сборка
+```
+
+## Развёртывание
+
+Полная пошаговая инструкция для Debian 13 (Node.js 20 + PostgreSQL + nginx + PM2) — в [`DEPLOY.md`](DEPLOY.md). Ключевые моменты:
+
+- приложение слушает `127.0.0.1:3000`, наружу — nginx с TLS;
+- в проде обязателен HTTPS: cookie сессии ставится с флагом `Secure`, а без TLS вход не сработает;
+- `NEXT_PUBLIC_APP_URL` должен точно совпадать с публичным адресом (`https://домен`), иначе изменяющие запросы к API будут получать `403`;
+- резервное копирование — `pg_dump` по расписанию вне приложения.
+
+## Лицензия
+
+См. файл [`LICENSE`](LICENSE). Кодекс поведения — [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
