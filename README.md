@@ -2,7 +2,7 @@
 
 Информационная система для небольшого торгового бизнеса: учёт номенклатуры (товары-двигатели), партий поставки, сделок реализации, контрагентов и остатков на складе. Себестоимость и цена КП считаются автоматически по курсу юаня, реестры выгружаются в Excel.
 
-> Полная спецификация проекта — [`tech.md`](tech.md). Инструкция по развёртыванию на сервере — [`DEPLOY.md`](DEPLOY.md). Политика безопасности — [`SECURITY.md`](SECURITY.md).
+> Полная спецификация проекта — [`tech.md`](tech.md). Политика безопасности — [`SECURITY.md`](SECURITY.md).
 
 ---
 
@@ -57,10 +57,7 @@ next.config.js                   заголовки безопасности, CS
 tailwind.config.ts               конфиг Tailwind
 .env.example                     образец переменных окружения
 db/
-  schema.sql                     полная DDL-схема (чистая БД)
-  roles.sql                      ограниченная роль приложения auteko_app
-  migrations/
-    001_security.sql             token_version, is_active, UNIQUE на номера
+  schema.sql                     полная DDL-схема: таблицы, триггеры, уникальные номера
 scripts/
   create-user.js                 создание пользователя (пароль скрытно / через AUTEKO_PASSWORD)
   seed-demo.js                   демо-данные: клиенты, партии, сделки (--clean / --reset)
@@ -108,8 +105,6 @@ sudo -u postgres psql -c "CREATE DATABASE auteko_db;"
 sudo -u postgres psql -c "CREATE USER auteko_user WITH PASSWORD 'сложный_пароль';"
 sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE auteko_db TO auteko_user;"
 sudo -u postgres psql -d auteko_db -f db/schema.sql
-sudo -u postgres psql -d auteko_db -f db/roles.sql
-sudo -u postgres psql -d auteko_db -f db/migrations/001_security.sql
 ```
 
 ### 3. Настроить переменные окружения
@@ -175,7 +170,7 @@ npm run db:seed:clean      # удалить демо-данные
 
 Схема — `db/schema.sql` (чистая БД, данные не вставляются, только служебные настройки). Таблицы:
 
-- `users` — учётные записи (пароль — bcrypt, `token_version`, `is_active` после миграции 001);
+- `users` — учётные записи (пароль — bcrypt, `token_version`, `is_active`);
 - `products` — номенклатура (массивы `original_articles`, `engine_models`);
 - `batches` — партии поставки; `cost_price_rub`, `price_kp_rub`, `profit_per_unit` считает триггер `calc_batch_prices()`;
 - `clients` — контрагенты;
@@ -184,7 +179,7 @@ npm run db:seed:clean      # удалить демо-данные
 
 Представление `stock_balance` — остатки по партиям со статусом «зелёный/жёлтый/красный».
 
-Миграции применяются только вперёд. Номера партий и сделок уникальны (после миграции 001).
+Номера партий и сделок, артикулы товаров и email пользователей уникальны (UNIQUE-констрейнты в схеме).
 
 ## API
 
@@ -221,7 +216,7 @@ npm run db:seed:clean      # удалить демо-данные
 - **Инъекции**: только параметризованные запросы; `ILIKE`-паттерны экранируются; защита от формул-инъекций при экспорте Excel; проверка сигнатуры и размера файла при импорте.
 - **Валидация**: все входы API через zod-схемы; id проверяется на UUID до обращения к БД.
 - **Конкурентность**: остатки пересчитываются в транзакции с `SELECT ... FOR UPDATE` по партии — гонок и отрицательных остатков нет.
-- Подробности — [`SECURITY.md`](SECURITY.md) и [`SECURITY_AUDIT_REPORT.md`](SECURITY_AUDIT_REPORT.md).
+- Подробности — [`SECURITY.md`](SECURITY.md).
 
 ## Проверки перед запуском
 
@@ -233,7 +228,7 @@ npm run build       # сборка
 
 ## Развёртывание
 
-Полная пошаговая инструкция для Debian 13 (Node.js 20 + PostgreSQL + nginx + PM2) — в [`DEPLOY.md`](DEPLOY.md). Ключевые моменты:
+Ключевые моменты развёртывания (Node.js 20 + PostgreSQL + nginx + PM2):
 
 - приложение слушает `127.0.0.1:3000`, наружу — nginx с TLS;
 - в проде обязателен HTTPS: cookie сессии ставится с флагом `Secure`, а без TLS вход не сработает;
