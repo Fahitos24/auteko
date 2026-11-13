@@ -1,0 +1,17 @@
+0 verbose cli /usr/bin/node /usr/bin/npm
+1 info using npm@10.9.9
+2 info using node@v22.23.5
+3 silly config load:file:/usr/lib/node_modules/npm/npmrc
+4 silly config load:file:/opt/auteko/.npmrc
+5 silly config load:file:/usr/etc/npmrc
+6 verbose title npm run build
+7 verbose argv "run" "build"
+8 verbose logfile logs-max:10 dir:/opt/auteko/.npm/_logs/2026-11-13T06_05_24_833Z-
+9 verbose logfile /opt/auteko/.npm/_logs/2026-11-13T06_05_24_833Z-debug-0.log
+10 silly logfile done cleaning log files
+11 verbose cwd /opt/auteko
+12 verbose os Linux 7.2.12+deb13-amd64
+13 verbose node v22.23.5
+14 verbose npm  v10.9.9
+15 verbose exit 0
+16 info ok

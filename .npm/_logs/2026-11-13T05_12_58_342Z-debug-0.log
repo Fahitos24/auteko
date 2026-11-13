@@ -1,0 +1,11 @@
+0 verbose cli /usr/bin/node /usr/bin/npm
+1 info using npm@10.9.9
+2 info using node@v22.23.5
+3 silly config load:file:/usr/lib/node_modules/npm/npmrc
+4 silly config load:file:/opt/auteko/.npmrc
+5 silly config load:file:/usr/etc/npmrc
+6 verbose title npm run start
+7 verbose argv "run" "start"
+8 verbose logfile logs-max:10 dir:/opt/auteko/.npm/_logs/2026-11-13T05_12_58_342Z-
+9 verbose logfile /opt/auteko/.npm/_logs/2026-11-13T05_12_58_342Z-debug-0.log
+10 silly logfile done cleaning log files

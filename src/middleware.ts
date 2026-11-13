@@ -47,7 +47,10 @@ export async function middleware(request: NextRequest) {
 
   if (!session) {
     if (isApi) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    const response = NextResponse.redirect(new URL('/login', request.url))
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL
+    const response = NextResponse.redirect(
+      new URL('/login', appUrl || request.url)
+    )
     if (token) response.cookies.delete(COOKIE_NAME)
     return response
   }
